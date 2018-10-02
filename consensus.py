@@ -1,7 +1,10 @@
+#!/data/perezde/dna_barcoding/dna_barcoding_env3/bin/python
+
 import os
 import inspect
 import sys
 import re
+import getopt
 from Bio import SeqIO
 from Bio import Align
 from Bio.Seq import Seq
@@ -31,7 +34,7 @@ def longest_common_substring(str1, str2):
 				m[x][y] = 0
 	return str1[x_longest - longest: x_longest]	
 
-def trim(seq, cutoff=0.05, min_length=20, save=True, target_directory=None, file_format=default_format, filter_Ns=False):
+def trim(seq, cutoff=0.05, window=20, save=True, target_directory=None, file_format=default_format, filter_Ns=False):
 	start = False
 	trim_start = 0
 	
@@ -53,14 +56,14 @@ def trim(seq, cutoff=0.05, min_length=20, save=True, target_directory=None, file
 				trim_start = i
 				start = True
 		
-		if filter_Ns and seq.seq[i] == 'N' and start and (i - trim_start < min_length):
+		if filter_Ns and seq.seq[i] == 'N' and start and (i - trim_start < window):
 			start = False		
 	
 	trim_finish = cummul_score.index(max(cummul_score))
 
 	end_window = 0
 	
-	while end_window < min_length:
+	while end_window < window:
 		if trim_finish - end_window > 0 and seq.seq[trim_finish - end_window] == 'N':
 			trim_finish = trim_finish - end_window - 1
 			end_window = 0			
@@ -186,7 +189,7 @@ def read_abi(file_path):
 		print("Please enter a valid file path.")
 		return None
 
-def build_consensus(forward=None, reverse=None, save=True, target_directory=None, file_format="fasta"):
+def build_consensus(forward=None, reverse=None, save=True, target_directory=None, file_format="fasta", trimming_window=20):
 	
 	if file_format not in accepted_formats:
 		print(file_format + " is not an accepted format. Will save as fasta.")
@@ -206,26 +209,26 @@ def build_consensus(forward=None, reverse=None, save=True, target_directory=None
 		if len(forward_trimmed.seq) > 0 and len(reverse_trimmed.seq) > 0:
 			alignment = align(forward_trimmed, reverse_trimmed)
 			consensus_sequence = get_consensus(alignment, forward_trimmed, reverse_trimmed, save=False)
-			consensus_trimmed = trim(consensus_sequence, cutoff=0.01, save=save, target_directory=target_directory, file_format=file_format, filter_Ns = True)
+			consensus_trimmed = trim(consensus_sequence, cutoff=0.01, save=save, window=trimming_window, target_directory=target_directory, file_format=file_format, filter_Ns = True)
 		elif len(forward_trimmed.seq) > 0:
-			consensus_trimmed = trim(forward_trimmed, cutoff=0.01, save=save, target_directory=target_directory, file_format=file_format, filter_Ns = True)
+			consensus_trimmed = trim(forward_trimmed, cutoff=0.01, save=save, window=trimming_window, target_directory=target_directory, file_format=file_format, filter_Ns = True)
 		elif len(reverse_trimmed.seq) > 0:
 			reverse_trimmed.seq = reverse_trimmed.seq.reverse_complement()
 			reverse_trimmed.letter_annotations['phred_quality'].reverse()
-			consensus_trimmed = trim(reverse_trimmed, cutoff=0.01, save=save, target_directory=target_directory, file_format=file_format, filter_Ns = True)
+			consensus_trimmed = trim(reverse_trimmed, cutoff=0.01, save=save, window=trimming_window, target_directory=target_directory, file_format=file_format, filter_Ns = True)
 		else:
 			print("Files " + forward.name + " " + reverse.name + " did not pass quality parameters. No consensus file has been made.")
 			return None
 
 	elif forward is not None:
 		forward = read_abi(forward)
-		consensus_trimmed = trim(forward, cutoff=0.01, save=save, target_directory=target_directory, file_format=file_format, filter_Ns=True)
+		consensus_trimmed = trim(forward, cutoff=0.01, save=save, window=trimming_window, target_directory=target_directory, file_format=file_format, filter_Ns=True)
 	else:
 		# trim reverse only
 		reverse = read_abi(reverse)
 		reverse.seq = reverse.seq.reverse_complement()
 		reverse.letter_annotations['phred_quality'].reverse_complement()
-		consensus_trimmed = trim(reverse, cutoff=0.01, save=save, target_directory=target_directory, file_format=file_format, filter_Ns=True)
+		consensus_trimmed = trim(reverse, cutoff=0.01, save=save, window=trimming_window, target_directory=target_directory, file_format=file_format, filter_Ns=True)
 
 	if not save:
 		print(consensus_trimmed.format(file_format))		
@@ -269,7 +272,7 @@ def quality_selection(seq, directory=None, trimming_window=10):
 	return max_read
 			
 
-def find_pairs(directory, latest_resequence = True, save=True, target_directory=None):
+def find_pairs(directory, latest_resequence = True, save=True, target_directory=None, file_format=default_format, trimming_window=20):
 	if directory is None or not os.path.isdir(directory):
 		print("Please provide a directory. Exiting execution...")
 		return None
@@ -337,21 +340,73 @@ def find_pairs(directory, latest_resequence = True, save=True, target_directory=
 				forward = directory + forward_sequences.pop()
 				reverse = directory + reverse_sequences.pop()
 				print("Files " + forward + " and " + reverse + " are paired.")
-				consensus_sequence = build_consensus(forward=forward, reverse=reverse, save=save, target_directory=target_directory, file_format="fasta")
+				consensus_sequence = build_consensus(forward=forward, reverse=reverse, save=save, target_directory=target_directory, file_format=file_format, trimming_window=trimming_window)
 			elif len(forward_sequences) > 0:
 				forward = directory + forward_sequences.pop()
 				print("File " + forward + " is single ended.")
-				build_consensus(forward=forward, reverse=None, save=save, target_directory=target_directory, file_format="fasta")
+				build_consensus(forward=forward, reverse=None, save=save, target_directory=target_directory, file_format=file_format, trimming_window=trimming_window)
 			else:
 				reverse = directory + reverse_sequences.pop()
 				print("File " + reverse + " is single ended.")
-				build_consensus(forward=None, reverse=reverse, save=save, target_directory=target_directory, file_format="fasta")
+				build_consensus(forward=None, reverse=reverse, save=save, target_directory=target_directory, file_format=file_format, trimming_window=trimming_window)
 		else:
 			forward = quality_selection(forward_sequences, directory=directory)
 			reverse = quality_selection(reverse_sequences, directory=directory)
-			build_consensus(forward, reverse, save=save, target_directory=target_directory, file_format="fasta")
+			build_consensus(forward, reverse, save=save, target_directory=target_directory, file_format=file_format, trimming_window=trimming_window)
 
 		print()
 		forward_sequences = []
 		reverse_sequences = []
 
+def main(argv):
+	# latest resequence
+	# directory
+	# save
+	# target directory
+	# format
+	# trimming window
+	directory = None # d
+	save = False # s
+	latest_resequence = False # l
+	target_directory = None # t
+	file_format = default_format #f
+	trimming_window = 20 #w
+
+	try:
+		opts, args = getopt.getopt(argv,"hd:lt:f:w:",["help", "directory=","latest-resequence","target-directory=","file-format=","window="])
+	except getopt.GetoptError:
+		print("Usage")
+		sys.exit(2)
+	for opt,arg in opts:
+		if opt in ('-h', "--help"):
+			print("Usage")
+			sys.exit()
+		elif opt in ("-d", "--directory"):
+			directory = arg
+		elif opt in ("-l", "--latest-resequence"):
+			latest_resequence = True
+		elif opt in ("-t", "--target-directory"):
+			target_directory = arg
+		elif opt in ("-f", "--file-format"):
+			file_format = arg
+		elif opt in ("-w", "--window"):
+			trimming_window = int(arg)
+
+	if directory is None or not os.path.isdir(directory):
+		print("Please provide a valid path with ab1 files.")
+		sys.exit()
+
+	if target_directory is not None:
+		save = True 
+		if not os.path.isdir(target_directory):
+			print("Please provide a valid path where consensus files will be saved.")
+			sys.exit()
+
+	if file_format not in accepted_formats:
+		print(file_format + " not recognized. Using fasta instead.")
+		file_format = default_format
+
+	find_pairs(directory, latest_resequence=latest_resequence, save=save, target_directory=target_directory, file_format=file_format, trimming_window=trimming_window)
+
+if __name__ == "__main__":
+	main(sys.argv[1:])
