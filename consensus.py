@@ -227,7 +227,7 @@ def build_consensus(forward=None, reverse=None, save=True, output=None, file_for
 		# trim reverse only
 		reverse = read_abi(reverse)
 		reverse.seq = reverse.seq.reverse_complement()
-		reverse.letter_annotations['phred_quality'].reverse_complement()
+		reverse.letter_annotations['phred_quality'].reverse()
 		consensus_trimmed = trim(reverse, cutoff=0.01, save=save, window=trimming_window, output=output, file_format=file_format, filter_Ns=True)
 
 	if not save:
